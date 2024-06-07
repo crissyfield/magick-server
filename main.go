@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/render"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,13 +26,72 @@ var CmdMain = &cobra.Command{
 	Version:           "0.0.1",
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	PersistentPreRunE: setup,
+	Run:               runMain,
 }
 
 // Initialize command options
 func init() {
 	// Logging
-	CmdMain.Flags().String("logging.level", "info", "verbosity of logging output")
-	CmdMain.Flags().Bool("logging.json", false, "change logging format to JSON")
+	CmdMain.Flags().String("log-level", "info", "verbosity of logging output")
+	CmdMain.Flags().Bool("log-json", false, "change logging format to JSON")
+
+	// Backend
+	CmdMain.Flags().String("listen", ":8080", "address the server should listen to")
+}
+
+// runMain is called when the main command is used.
+func runMain(_ *cobra.Command, _ []string) {
+	// Create routing
+	router := chi.NewRouter()
+
+	router.Use(middleware.RedirectSlashes)
+	router.Use(middleware.RealIP)
+	router.Use(middleware.Logger)
+	router.Use(middleware.NoCache)
+	router.Use(middleware.Recoverer)
+
+	router.Post("/convert", convertHandler())
+
+	// Start HTTP server
+	srv := &http.Server{
+		Addr:    viper.GetString("listen"),
+		Handler: router,
+	}
+
+	go func() {
+		err := srv.ListenAndServe()
+		if (err != nil) && (err != http.ErrServerClosed) {
+			slog.Error("Failed to start server", slog.Any("error", err))
+			os.Exit(1) //nolint:revive
+		}
+	}()
+
+	slog.Info("Server is listening...", slog.String("address", srv.Addr))
+
+	// Wait for user termination
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	<-done
+
+	// Stop server
+	slog.Info("Server shutting down gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("Failed to gracefully shut down server", slog.Any("error", err))
+		os.Exit(1) //nolint:revive
+	}
+}
+
+// convertHandler ...
+func convertHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render.Status(r, http.StatusOK)
+		render.JSON(w, r, map[string]any{"status": "OK"})
+	}
 }
 
 // setup will set up configuration management and logging.
@@ -55,14 +122,14 @@ func setup(cmd *cobra.Command, _ []string) error {
 	// Logging
 	var level slog.Level
 
-	err = level.UnmarshalText([]byte(viper.GetString("logging.level")))
+	err = level.UnmarshalText([]byte(viper.GetString("log-level")))
 	if err != nil {
 		return fmt.Errorf("parse log level: %w", err)
 	}
 
 	var handler slog.Handler
 
-	if viper.GetBool("logging.json") {
+	if viper.GetBool("log-json") {
 		// Use JSON handler
 		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	} else {
