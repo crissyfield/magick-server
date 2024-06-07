@@ -6,7 +6,7 @@ RUN apk --no-cache add git
 WORKDIR /app
 COPY . .
 
-RUN go build -ldflags="-s -w" -o pdf-server main.go
+RUN go build -ldflags="-s -w -X 'main.Version=$(git describe --tag)'" -o pdf-server main.go
 
 
 # Deploy

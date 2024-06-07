@@ -18,12 +18,15 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Version will be set during build.
+var Version = "(unknown)"
+
 // CmdMain defines the root command.
 var CmdMain = &cobra.Command{
 	Use:               "pdf-server [flags]",
 	Long:              "...",
 	Args:              cobra.NoArgs,
-	Version:           "0.0.1",
+	Version:           Version,
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	PersistentPreRunE: setup,
 	Run:               runMain,
@@ -50,6 +53,8 @@ func runMain(_ *cobra.Command, _ []string) {
 	router.Use(middleware.NoCache)
 	router.Use(middleware.Recoverer)
 
+	router.Get("/health", healthHandler())
+	router.Get("/version", versionHandler())
 	router.Post("/convert", convertHandler())
 
 	// Start HTTP server
@@ -86,11 +91,27 @@ func runMain(_ *cobra.Command, _ []string) {
 	}
 }
 
+// healthHandler ...
+func healthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render.Status(r, http.StatusOK)
+		render.JSON(w, r, map[string]any{"status": "OK"})
+	}
+}
+
+// versionHandler ...
+func versionHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render.Status(r, http.StatusOK)
+		render.JSON(w, r, Version)
+	}
+}
+
 // convertHandler ...
 func convertHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		render.Status(r, http.StatusOK)
-		render.JSON(w, r, map[string]any{"status": "OK"})
+		render.JSON(w, r, map[string]any{"foo": "bar"})
 	}
 }
 
