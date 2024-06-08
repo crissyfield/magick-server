@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -100,128 +101,6 @@ func runMain(_ *cobra.Command, _ []string) {
 	}
 }
 
-// healthHandler ...
-func healthHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		render.Status(r, http.StatusOK)
-		render.JSON(w, r, map[string]any{"status": "OK"})
-	}
-}
-
-// versionHandler ...
-func versionHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		render.Status(r, http.StatusOK)
-		render.JSON(w, r, Version)
-	}
-}
-
-// convertHandler ...
-func convertHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Read input blob
-		in, err := io.ReadAll(r.Body)
-		if err != nil {
-			slog.Error("Failed to read input blob", slog.Any("error", err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Get a new magick wand
-		mw := imagick.NewMagickWand()
-		defer mw.Destroy()
-
-		// Set input resolution
-		err = mw.SetResolution(300.0, 300.0)
-		if err != nil {
-			slog.Error("Failed to set input resolution", slog.Any("error", err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Read image
-		err = mw.ReadImageBlob(in)
-		if err != nil {
-			slog.Error("Failed to read image", slog.Any("error", err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Set up Zip archive
-		buf := &bytes.Buffer{}
-		zipWriter := zip.NewWriter(buf)
-
-		zipWriter.RegisterCompressor(zip.Deflate, func(o io.Writer) (io.WriteCloser, error) {
-			return flate.NewWriter(o, flate.BestSpeed)
-		})
-
-		// Iterate through all pages
-		mw.ResetIterator()
-
-		for page := 0; mw.NextImage(); page++ {
-			// Pull current image into its own magick wand
-			mwi := mw.GetImage()
-			defer mwi.Destroy()
-
-			// Flatten image
-			mwm := mwi.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN)
-			defer mwm.Destroy()
-
-			// Set image compression quality
-			err = mwm.SetImageCompressionQuality(85)
-			if err != nil {
-				slog.Error("Failed to set image compression quality", slog.Any("error", err))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			// Set output format
-			err = mwm.SetImageFormat("JPEG")
-			if err != nil {
-				slog.Error("Failed to set output format", slog.Any("error", err))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			// Get output blob
-			out, err := mwm.GetImageBlob()
-			if err != nil {
-				slog.Error("Failed to get output blob", slog.Any("error", err))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			// Create new archive entry
-			f, err := zipWriter.Create(fmt.Sprintf("%04d.jpg", page))
-			if err != nil {
-				slog.Error("Failed to create new archive entry", slog.Any("error", err))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			// Write content into archive
-			_, err = f.Write(out)
-			if err != nil {
-				slog.Error("Write content into archive", slog.Any("error", err))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// Wrap up Zip archive
-		err = zipWriter.Close()
-		if err != nil {
-			slog.Error("Wrap up Zip archive", slog.Any("error", err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// We're good
-		render.Status(r, http.StatusOK)
-		render.Data(w, r, buf.Bytes())
-	}
-}
-
 // setup will set up configuration management and logging.
 //
 // Configuration options can be set via the command line, via a configuration file (in the current folder, at
@@ -273,6 +152,191 @@ func setup(cmd *cobra.Command, _ []string) error {
 // main is the main entry point of the command.
 func main() {
 	if err := CmdMain.Execute(); err != nil {
-		slog.Error("Unable to execute command", slog.Any("error", err))
+		slog.Error("Failed to execute command", slog.Any("error", err))
+	}
+}
+
+// healthHandler returns the health status.
+func healthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Return JSON with health
+		render.Status(r, http.StatusOK)
+		render.JSON(w, r, map[string]any{"status": "OK"})
+	}
+}
+
+// versionHandler returns the server version.
+func versionHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Return JSON with version
+		render.Status(r, http.StatusOK)
+		render.JSON(w, r, Version)
+	}
+}
+
+// formatExtensionMap defines the supported output formats and their file extensions.
+var formatExtensionMap = map[string]string{
+	"JPEG": "jpg",  // JPEG File Interchange Format
+	"PNG":  "png",  // Portable Network Graphics
+	"TIFF": "tiff", // Tagged Image File Format
+}
+
+// convertHandler converts a (multi-page) image into a Zip archive.
+func convertHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse density
+		density := 300.0
+
+		if v := r.URL.Query().Get("density"); v != "" {
+			d, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				slog.Error("Failed to parse validate density", slog.Any("error", err), slog.String("value", v))
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, map[string]any{"error": "invalid density"})
+				return
+			}
+
+			density = d
+		}
+
+		// Parse compression quality
+		quality := uint(85)
+
+		if v := r.URL.Query().Get("quality"); v != "" {
+			q, err := strconv.ParseUint(v, 10, 64)
+			if err != nil {
+				slog.Error("Failed to parse compression quality", slog.Any("error", err), slog.String("value", v))
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, map[string]any{"error": "invalid compression quality"})
+				return
+			}
+
+			quality = uint(q)
+		}
+
+		// Parse output format
+		format := "JPEG"
+
+		if v := r.URL.Query().Get("format"); v != "" {
+			v = strings.ToUpper(v)
+			if _, ok := formatExtensionMap[v]; !ok {
+				slog.Error("Failed to parse output format", slog.String("value", v))
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, map[string]any{"error": "invalid output format"})
+				return
+			}
+
+			format = v
+		}
+
+		// Read request body
+		in, err := io.ReadAll(r.Body)
+		if err != nil {
+			slog.Error("Failed to read request body", slog.Any("error", err))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, map[string]any{"error": "failed to read request body"})
+			return
+		}
+
+		// Get a new magick wand
+		mw := imagick.NewMagickWand()
+		defer mw.Destroy()
+
+		// Set density
+		err = mw.SetResolution(density, density)
+		if err != nil {
+			slog.Error("Failed to set density", slog.Any("error", err))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, map[string]any{"error": "failed to set density"})
+			return
+		}
+
+		// Read image
+		err = mw.ReadImageBlob(in)
+		if err != nil {
+			slog.Error("Failed to read image", slog.Any("error", err))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, map[string]any{"error": "failed to read image"})
+			return
+		}
+
+		// Set up Zip archive
+		buf := &bytes.Buffer{}
+		zipWriter := zip.NewWriter(buf)
+
+		zipWriter.RegisterCompressor(zip.Deflate, func(o io.Writer) (io.WriteCloser, error) {
+			return flate.NewWriter(o, flate.BestSpeed)
+		})
+
+		// Iterate through all pages
+		mw.ResetIterator()
+
+		for page := 0; mw.NextImage(); page++ {
+			// Pull current image into its own magick wand
+			mwi := mw.GetImage()
+			defer mwi.Destroy()
+
+			// Flatten image
+			mwm := mwi.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN)
+			defer mwm.Destroy()
+
+			// Set compression quality
+			err = mwm.SetImageCompressionQuality(quality)
+			if err != nil {
+				slog.Error("Failed to set compression quality", slog.Any("error", err), slog.Any("quality", quality))
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, map[string]any{"error": "failed to set compression quality"})
+				return
+			}
+
+			// Set output format
+			err = mwm.SetImageFormat(format)
+			if err != nil {
+				slog.Error("Failed to set output format", slog.Any("error", err), slog.String("format", format))
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, map[string]any{"error": "failed to set output format"})
+				return
+			}
+
+			// Get output blob
+			out, err := mwm.GetImageBlob()
+			if err != nil {
+				slog.Error("Failed to get output blob", slog.Any("error", err))
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, map[string]any{"error": "failed to set output format"})
+				return
+			}
+
+			// Create new Zip archive entry
+			f, err := zipWriter.Create(fmt.Sprintf("%04d.%s", page, formatExtensionMap[format]))
+			if err != nil {
+				slog.Error("Failed to create new Zip archive entry", slog.Any("error", err))
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, map[string]any{"error": "failed to create new Zip archive entry"})
+				return
+			}
+
+			// Write image into Zip archive
+			_, err = f.Write(out)
+			if err != nil {
+				slog.Error("Failed to write image into Zip archive", slog.Any("error", err))
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, map[string]any{"error": "failed to write image into Zip archive"})
+				return
+			}
+		}
+
+		// Close Zip archive
+		err = zipWriter.Close()
+		if err != nil {
+			slog.Error("Failed to close Zip archive", slog.Any("error", err))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, map[string]any{"error": "failed to close Zip archive"})
+			return
+		}
+
+		// We're good
+		render.Status(r, http.StatusOK)
+		render.Data(w, r, buf.Bytes())
 	}
 }
