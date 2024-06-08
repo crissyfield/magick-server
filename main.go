@@ -28,8 +28,8 @@ var Version = "(unknown)"
 
 // CmdMain defines the root command.
 var CmdMain = &cobra.Command{
-	Use:               "pdf-server [flags]",
-	Long:              "...",
+	Use:               "magick-server [flags]",
+	Long:              "A simple API server to convert (multi-page) images using ImageMagick.",
 	Args:              cobra.NoArgs,
 	Version:           Version,
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
@@ -225,8 +225,8 @@ func convertHandler() http.HandlerFunc {
 // setup will set up configuration management and logging.
 //
 // Configuration options can be set via the command line, via a configuration file (in the current folder, at
-// "/etc/pdf-server/config.yaml" or at "~/.config/pdf-server/config.yaml"), and via environment variables (all
-// uppercase and prefixed with "PDF_SERVER_").
+// "/etc/magck-server/config.yaml" or at "~/.config/magick-server/config.yaml"), and via environment variables
+// (all uppercase and prefixed with "MAGICK_SERVER_").
 func setup(cmd *cobra.Command, _ []string) error {
 	// Connect all options to Viper
 	err := viper.BindPFlags(cmd.Flags())
@@ -235,14 +235,14 @@ func setup(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Environment variables
-	viper.SetEnvPrefix("PDF_SERVER")
+	viper.SetEnvPrefix("MAGICK_SERVER")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	viper.AutomaticEnv()
 
 	// Configuration file
 	viper.SetConfigName("config")
-	viper.AddConfigPath("/etc/pdf-server")
-	viper.AddConfigPath("$HOME/.config/pdf-server")
+	viper.AddConfigPath("/etc/magick-server")
+	viper.AddConfigPath("$HOME/.config/magick-server")
 	viper.AddConfigPath(".")
 
 	viper.ReadInConfig() //nolint:errcheck

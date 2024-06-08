@@ -1,4 +1,4 @@
-module github.com/crissyfield/pdf-server
+module github.com/crissyfield/magick-server
 
 go 1.22
 

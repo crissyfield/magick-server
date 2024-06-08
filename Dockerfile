@@ -40,7 +40,7 @@ RUN cd && \
 WORKDIR /app
 COPY . .
 
-RUN go build -ldflags="-s -w -X 'main.Version=$(git describe --tag)'" -o pdf-server main.go
+RUN go build -ldflags="-s -w -X 'main.Version=$(git describe --tag)'" -o magick-server main.go
 
 ##
 ##  Deploy
@@ -66,6 +66,6 @@ COPY --from=build /usr/local/lib /usr/local/lib
 RUN ldconfig /usr/local/lib
 
 # Copy and run Go app
-COPY --from=build /app/pdf-server /pdf-server
+COPY --from=build /app/magick-server /magick-server
 
-ENTRYPOINT [ "/usr/bin/tini", "--", "/pdf-server" ]
+ENTRYPOINT [ "/usr/bin/tini", "--", "/magick-server" ]
