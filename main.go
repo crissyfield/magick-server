@@ -45,7 +45,7 @@ func init() {
 	CmdMain.Flags().Bool("log-json", false, "change logging format to JSON")
 
 	// Backend
-	CmdMain.Flags().String("listen", ":8080", "address the server should listen to")
+	CmdMain.Flags().String("listen", ":8081", "address the server should listen to")
 }
 
 // runMain is called when the main command is used.
@@ -240,7 +240,6 @@ func convertHandler() http.HandlerFunc {
 
 		// Get a new magick wand
 		mw := imagick.NewMagickWand()
-		defer mw.Destroy()
 
 		// Set density
 		err = mw.SetResolution(density, density)
@@ -274,11 +273,9 @@ func convertHandler() http.HandlerFunc {
 		for page := 0; mw.NextImage(); page++ {
 			// Pull current image into its own magick wand
 			mwi := mw.GetImage()
-			defer mwi.Destroy()
 
 			// Flatten image
 			mwm := mwi.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN)
-			defer mwm.Destroy()
 
 			// Set compression quality
 			err = mwm.SetImageCompressionQuality(quality)
