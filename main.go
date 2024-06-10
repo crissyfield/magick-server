@@ -21,7 +21,7 @@ import (
 	"github.com/go-chi/render"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/gographics/imagick.v3/imagick"
+	"gopkg.in/gographics/imagick.v2/imagick"
 )
 
 // Version will be set during build.

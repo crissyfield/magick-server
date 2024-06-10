@@ -7,7 +7,7 @@ require (
 	github.com/go-chi/render v1.0.3
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.19.0
-	gopkg.in/gographics/imagick.v3 v3.7.0
+	gopkg.in/gographics/imagick.v2 v2.7.0
 )
 
 require (

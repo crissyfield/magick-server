@@ -20,10 +20,10 @@ RUN apt-get update && \
 	rm -rf /var/lib/apt/lists/*
 
 # Build ImageMagick
-ENV IMAGEMAGICK_VERSION 7.1.1-33
+ENV IMAGEMAGICK_VERSION 6.9.13-11
 
 RUN cd && \
-	wget https://github.com/ImageMagick/ImageMagick/archive/${IMAGEMAGICK_VERSION}.tar.gz && \
+	wget https://github.com/ImageMagick/ImageMagick6/archive/${IMAGEMAGICK_VERSION}.tar.gz && \
 	tar xvzf ${IMAGEMAGICK_VERSION}.tar.gz && \
 	cd ImageMagick* && \
 	./configure \
