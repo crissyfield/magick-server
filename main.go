@@ -181,8 +181,17 @@ var formatExtensionMap = map[string]string{
 	"TIFF": "tiff", // Tagged Image File Format
 }
 
+// layoutType defines the output layout to enforce.
+type layoutType string
+
+const (
+	layoutTypeLandscape layoutType = "LANDSCAPE" // layoutTypeLandscape forces a landscape layout.
+	layoutTypePortrait  layoutType = "PORTRAIT"  // layoutTypePortrait forces a portrait layout.
+	layoutTypeKeep      layoutType = "KEEP"      // layoutTypeKeep keeps the original layout.
+)
+
 // convertHandler converts a (multi-page) image into a Zip archive.
-func convertHandler() http.HandlerFunc {
+func convertHandler() http.HandlerFunc { //nolint
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse density
 		density := 300.0
@@ -229,6 +238,21 @@ func convertHandler() http.HandlerFunc {
 			format = v
 		}
 
+		// Parse output layout
+		layout := layoutTypeKeep
+
+		if v := r.URL.Query().Get("layout"); v != "" {
+			v = strings.ToUpper(v)
+			if (v != string(layoutTypeLandscape)) && (v != string(layoutTypePortrait)) && (v != string(layoutTypeKeep)) {
+				slog.Error("Failed to parse output layout", slog.String("value", v))
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, map[string]any{"error": "invalid output layout"})
+				return
+			}
+
+			layout = layoutType(v)
+		}
+
 		// Read request body
 		in, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -240,6 +264,7 @@ func convertHandler() http.HandlerFunc {
 
 		// Get a new magick wand
 		mw := imagick.NewMagickWand()
+		defer mw.Destroy()
 
 		// Set density
 		err = mw.SetResolution(density, density)
@@ -273,9 +298,11 @@ func convertHandler() http.HandlerFunc {
 		for page := 0; mw.NextImage(); page++ {
 			// Pull current image into its own magick wand
 			mwi := mw.GetImage()
+			defer mwi.Destroy()
 
 			// Flatten image
 			mwm := mwi.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN)
+			defer mwm.Destroy()
 
 			// Set compression quality
 			err = mwm.SetImageCompressionQuality(quality)
@@ -293,6 +320,44 @@ func convertHandler() http.HandlerFunc {
 				render.Status(r, http.StatusInternalServerError)
 				render.JSON(w, r, map[string]any{"error": "failed to set output format"})
 				return
+			}
+
+			// Force output layout
+			switch layout {
+			case layoutTypeLandscape:
+				// Get dimensions
+				width := mwm.GetImageWidth()
+				height := mwm.GetImageHeight()
+
+				if width < height {
+					// Rotate image
+					err := mwm.RotateImage(imagick.NewPixelWand(), -90.0)
+					if err != nil {
+						slog.Error("Failed to rotate image", slog.Any("error", err))
+						render.Status(r, http.StatusInternalServerError)
+						render.JSON(w, r, map[string]any{"error": "failed to rotate image"})
+						return
+					}
+				}
+
+			case layoutTypePortrait:
+				// Get dimensions
+				width := mwm.GetImageWidth()
+				height := mwm.GetImageHeight()
+
+				if height < width {
+					// Rotate image
+					err := mwm.RotateImage(imagick.NewPixelWand(), -90.0)
+					if err != nil {
+						slog.Error("Failed to rotate image", slog.Any("error", err))
+						render.Status(r, http.StatusInternalServerError)
+						render.JSON(w, r, map[string]any{"error": "failed to rotate image"})
+						return
+					}
+				}
+
+			case layoutTypeKeep:
+				// Do nothing
 			}
 
 			// Get output blob
