@@ -1,4 +1,4 @@
-name: PDF-Server
+name: magick-server
 
 on:
   push:
