@@ -59,7 +59,7 @@ func runMain(_ *cobra.Command, _ []string) {
 	router := chi.NewRouter()
 
 	router.Use(middleware.RedirectSlashes)
-	router.Use(middleware.RealIP)
+	router.Use(middleware.ClientIPFromRemoteAddr)
 	router.Use(httplog.RequestLogger(slog.Default(), &httplog.Options{Level: slog.LevelInfo}))
 	router.Use(middleware.NoCache)
 	router.Use(middleware.Recoverer)
