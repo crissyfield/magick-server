@@ -1,10 +1,10 @@
 ##
 ##  Build
 ##
-FROM golang:1.22-bookworm AS build
+FROM golang:1.27-trixie AS build
 
 # Install dependencies
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install --assume-yes --no-install-recommends \
@@ -45,13 +45,13 @@ RUN go build -ldflags="-s -w -X 'main.Version=$(git describe --tag)'" -o magick-
 ##
 ##  Deploy
 ##
-FROM debian:bookworm AS deploy
+FROM debian:trixie AS deploy
 
 LABEL org.opencontainers.image.authors="Dr. Thomas Jansen <thomas@crissyfield.de>"
 LABEL org.opencontainers.image.vendor="Crissy Field GmbH"
 
 # Install dependencies
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install --assume-yes \
