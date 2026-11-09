@@ -18,7 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/httplog/v2"
+	"github.com/go-chi/httplog/v3"
 	"github.com/go-chi/render"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -60,7 +60,7 @@ func runMain(_ *cobra.Command, _ []string) {
 
 	router.Use(middleware.RedirectSlashes)
 	router.Use(middleware.RealIP)
-	router.Use(httplog.RequestLogger(&httplog.Logger{Logger: slog.Default()}))
+	router.Use(httplog.RequestLogger(slog.Default(), &httplog.Options{Level: slog.LevelInfo}))
 	router.Use(middleware.NoCache)
 	router.Use(middleware.Recoverer)
 
